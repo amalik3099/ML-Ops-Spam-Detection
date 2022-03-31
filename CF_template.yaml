@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: 'ML Ops - Automatic spam detection'
+
+Parameters:
+  E1Endpoint:
+    Type: String
+    Default: sms-spam-classifier-mxnet-2022-03-31-01-20-50-055
+  S3BucketName:
+    Type: String
+    Default: cf-new-emails-bucket
+
+Resources:
+  AdminRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - sagemaker.amazonaws.com
+                - cloudformation.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: admin-role
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: "*"
+                Resource: "*"
+
+  s3EmailStorageBucket: # Resource name 
+    Type: AWS::S3::Bucket # S3 bucket resource
+    DependsOn: LambdaInvokePermission
+    Properties:
+      BucketName: !Ref S3BucketName # Actual bucket name
+      NotificationConfiguration: # Adding a lambda trigger 
+        LambdaConfigurations: 
+          - Event: s3:ObjectCreated:Put # Lambda will be triggered everytime an object is put in this s3 bucket 
+            Function: !GetAtt LambdaFunction.Arn # Dynamically getting the arn of the function we want to trigger 
+
+
+  s3EmailStorageBucketPolicy: # Creating policy to all SES emails to be stored in this bucket 
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref s3EmailStorageBucket # Policy is for this bucket 
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: 'ses.amazonaws.com'
+            Action: 's3:PutObject'
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref s3EmailStorageBucket
+                - /*
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cf-spam-classifier
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      Layers: 
+        - arn:aws:lambda:us-east-1:770693421928:layer:Klayers-python39-numpy:22
+      Role: !GetAtt 'AdminRole.Arn'
+      Timeout: 240
+      Environment:
+        Variables:
+          SageMakerEndPoint: !Ref E1Endpoint
+      Code: 
+        S3Bucket: cf-spam-lambda
+        S3Key: cf-spam-classifier.zip
+
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    DependsOn: LambdaFunction
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub arn:aws:s3:::${S3BucketName}
+
+  ReceiptRuleSet: # Creating a rule set 
+    Type: 'AWS::SES::ReceiptRuleSet'
+    Properties:
+      RuleSetName: cf-receiving-email-rule # Rule set that is created will not be made active. It is not yet supported from CloudFormation
+
+
+  ReceiptRule: # Creating a rule 
+    Type: 'AWS::SES::ReceiptRule'
+    Properties:
+      RuleSetName: !Ref ReceiptRuleSet # This rule exists in this specified rule set 
+      Rule:
+        Name: cf-receiving-email-reciept
+        Enabled: true
+        ScanEnabled: false
+        Actions:
+          - S3Action:
+              BucketName: !Ref s3EmailStorageBucket # This rule is invoked everytime an email is received in this bucket
