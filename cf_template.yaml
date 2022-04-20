@@ -40,21 +40,21 @@ Resources:
     Properties:
       BucketName: "spam-data-bucket-cf"
 
-  s3EmailStorageBucket: # Resource name 
-    Type: AWS::S3::Bucket # S3 bucket resource
+  s3EmailStorageBucket:
+    Type: AWS::S3::Bucket 
     DependsOn: LambdaInvokePermission
     Properties:
-      BucketName: !Ref S3BucketName # Actual bucket name
-      NotificationConfiguration: # Adding a lambda trigger 
+      BucketName: !Ref S3BucketName 
+      NotificationConfiguration: 
         LambdaConfigurations: 
-          - Event: s3:ObjectCreated:* # Lambda will be triggered everytime an object is put in this s3 bucket 
-            Function: !GetAtt LambdaFunction.Arn # Dynamically getting the arn of the function we want to trigger 
+          - Event: s3:ObjectCreated:* 
+            Function: !GetAtt LambdaFunction.Arn
 
 
-  s3EmailStorageBucketPolicy: # Creating policy to all SES emails to be stored in this bucket 
+  s3EmailStorageBucketPolicy: 
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref s3EmailStorageBucket # Policy is for this bucket 
+      Bucket: !Ref s3EmailStorageBucket  
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -83,7 +83,6 @@ Resources:
       Code: 
         S3Bucket: "cf-spam-lambda-bucket"
         S3Key: "spam-classifier-3a903ec5-ec79-46bb-9f38-eae889fbcc4c.zip"
-        # S3ObjectVersion: "AryFe_I8xZNKyuObMZSW1S7nfCfEAZzV"
       MemorySize: 128
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/s3-access-role"
       Runtime: "python3.7"
@@ -103,20 +102,19 @@ Resources:
       SourceAccount: !Ref 'AWS::AccountId'
       SourceArn: !Sub arn:aws:s3:::${S3BucketName}
 
-  ReceiptRuleSet: # Creating a rule set 
+  ReceiptRuleSet:
     Type: 'AWS::SES::ReceiptRuleSet'
     Properties:
-      RuleSetName: cf-receiving-email-rule # Rule set that is created will not be made active. It is not yet supported from CloudFormation
+      RuleSetName: cf-receiving-email-rule 
 
-
-  ReceiptRule: # Creating a rule 
+  ReceiptRule: 
     Type: 'AWS::SES::ReceiptRule'
     Properties:
-      RuleSetName: !Ref ReceiptRuleSet # This rule exists in this specified rule set 
+      RuleSetName: !Ref ReceiptRuleSet  
       Rule:
         Name: cf-receiving-email-reciept
         Enabled: true
         ScanEnabled: false
         Actions:
           - S3Action:
-              BucketName: !Ref s3EmailStorageBucket # This rule is invoked everytime an email is received in this bucket
+              BucketName: !Ref s3EmailStorageBucket 
